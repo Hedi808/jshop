@@ -1,3 +1,4 @@
+
 import { Headphones, PackageCheck, RotateCcw, ShieldCheck } from "lucide-react";
 import { getI18n } from "@/lib/i18n";
 
