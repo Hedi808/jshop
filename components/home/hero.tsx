@@ -16,6 +16,6 @@ export async function Hero() {
       <p className="mt-7 max-w-xl text-balance text-base leading-7 text-neutral-200 md:text-lg">{t("hero.copy")}</p>
       <div className="mt-8 flex flex-wrap gap-3"><Button asChild size="lg"><Link href="/category/trottinettes-electriques">{t("common.shopNow")} <ArrowRight className="rtl:rotate-180" /></Link></Button><Button asChild size="lg" variant="outline" className="border-white/50 text-white hover:bg-white hover:text-black"><Link href="/search?discount=true">{t("common.exploreDeals")}</Link></Button></div>
     </div></div>
-    <div className="absolute bottom-0 end-0 hidden w-[36rem] grid-cols-3 border-s border-t border-white/20 bg-black/60 backdrop-blur-md lg:grid">{[["56", t("hero.products")], ["14", t("hero.categories")], ["24H", t("hero.support")]].map(([value, label]) => <div key={label} className="border-e border-white/20 p-6"><p className="text-2xl font-black text-primary">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-[.12em] text-neutral-300">{label}</p></div>)}</div>
+    <div className="absolute bottom-0 end-0 hidden w-[36rem] grid-cols-3 border-s border-t border-white/20 bg-black/60 backdrop-blur-md lg:grid">{[["48", t("hero.products")], ["12", t("hero.categories")], ["24H", t("hero.support")]].map(([value, label]) => <div key={label} className="border-e border-white/20 p-6"><p className="text-2xl font-black text-primary">{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-[.12em] text-neutral-300">{label}</p></div>)}</div>
   </section>;
 }

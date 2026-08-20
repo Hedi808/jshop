@@ -15,7 +15,7 @@ import { getI18n } from "@/lib/i18n";
 
 export default async function HomePage() {
   const [categories, products, { t }] = await Promise.all([getCategories(), getProducts(), getI18n()]);
-  const categoryOrder = ["trottinettes-electriques", "velos-electriques", "smartphones", "informatique", "audio", "gaming", "objets-connectes", "electronique", "mobilite-electrique", "maison", "cuisine", "beaute-bien-etre", "accessoires", "sports-loisirs"];
+  const categoryOrder = ["audio", "objets-connectes", "accessoires", "gaming", "maison", "cuisine", "beaute-bien-etre", "sports-loisirs", "electronique", "mobilite-electrique", "trottinettes-electriques", "velos-electriques"];
   const orderedCategories = [...categories].sort((a, b) => categoryOrder.indexOf(a.slug) - categoryOrder.indexOf(b.slug));
   const flash = products.filter((product) => product.isFlashDeal).slice(0, 8);
   const trending = [...products].sort((a, b) => b.soldCount - a.soldCount).slice(0, 8);

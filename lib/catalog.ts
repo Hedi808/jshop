@@ -1,5 +1,12 @@
 import type { Category, Product } from "@/types";
 
+export const excludedCategorySlugs = ["smartphones", "informatique"] as const;
+const excludedCategorySlugSet = new Set<string>(excludedCategorySlugs);
+
+export function isExcludedCategorySlug(slug: string | null | undefined) {
+  return Boolean(slug && excludedCategorySlugSet.has(slug));
+}
+
 const categoryCopy: Array<[string, string, string]> = [
   ["electronique", "Électronique", "Équipements fiables pour le travail, les loisirs et le quotidien."],
   ["smartphones", "Smartphones", "Des téléphones 4G et 5G pour tous les usages et tous les budgets."],
@@ -19,13 +26,15 @@ const categoryCopy: Array<[string, string, string]> = [
 
 const imageSets = Object.fromEntries(categoryCopy.map(([slug]) => [slug, [1, 2, 3].map((variant) => `/art/${slug}/${variant}.svg`)])) as Record<string, string[]>;
 
-export const catalogCategories: Category[] = categoryCopy.map(([slug, name, description], index) => ({
+const allCatalogCategories: Category[] = categoryCopy.map(([slug, name, description], index) => ({
   id: `category-${String(index + 1).padStart(2, "0")}`,
   name,
   slug,
   description,
   image: imageSets[slug][0],
 }));
+
+export const catalogCategories = allCatalogCategories.filter((category) => !isExcludedCategorySlug(category.slug));
 
 type ProductSeed = {
   category: string;
@@ -118,8 +127,8 @@ function slugify(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
-export const catalogProducts: Product[] = seeds.map((seed, index) => {
-  const category = catalogCategories.find((item) => item.slug === seed.category)!;
+const allCatalogProducts: Product[] = seeds.map((seed, index) => {
+  const category = allCatalogCategories.find((item) => item.slug === seed.category)!;
   const imageGroup = imageSets[seed.category];
   const id = `product-${String(index + 1).padStart(3, "0")}`;
   const productNumber = String(index + 1).padStart(4, "0");
@@ -133,7 +142,7 @@ export const catalogProducts: Product[] = seeds.map((seed, index) => {
     id,
     name: seed.name,
     slug: slugify(seed.name),
-    description: `${seed.descriptor} Les informations techniques sont présentées clairement pour vous aider à choisir la configuration adaptée à vos besoins. Produit sélectionné pour sa fiabilité, sa facilité d’utilisation et son rapport qualité-prix.`,
+    description: `${seed.descriptor} Les caractéristiques sont présentées clairement pour vous aider à choisir le modèle adapté à vos besoins. Gadget importé de Chine et sélectionné pour sa fiabilité, sa facilité d’utilisation et son rapport qualité-prix.`,
     shortDescription: seed.descriptor,
     sku: `JSH-${productNumber}`,
     price: seed.price,
@@ -149,7 +158,7 @@ export const catalogProducts: Product[] = seeds.map((seed, index) => {
     rating,
     reviewCount: 18 + ((index * 29) % 240),
     soldCount: 35 + ((index * 41) % 730),
-    tags: [seed.category, seed.brand.toLowerCase(), "technique", index % 2 ? "quotidien" : "tendance"],
+    tags: [seed.category, seed.brand.toLowerCase(), "gadget", "import-chine", index % 2 ? "quotidien" : "tendance"],
     specifications: seed.specifications,
     images: [0, 1, 2].map((offset) => ({ id: `${id}-image-${offset + 1}`, url: imageGroup[(index + offset) % imageGroup.length], alt: `${seed.name} — vue ${offset + 1}`, sortOrder: offset })),
     variants: optionValues.flatMap((optionValue, optionIndex) => colors.map((color, colorIndex) => ({
@@ -173,6 +182,8 @@ export const catalogProducts: Product[] = seeds.map((seed, index) => {
     updatedAt: createdAt,
   };
 });
+
+export const catalogProducts = allCatalogProducts.filter((product) => !isExcludedCategorySlug(product.category.slug));
 
 for (const category of catalogCategories) {
   category.productCount = catalogProducts.filter((product) => product.category.slug === category.slug).length;

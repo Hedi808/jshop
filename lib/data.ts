@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { cache } from "react";
-import { catalogCategories, catalogProducts } from "@/lib/catalog";
+import { catalogCategories, catalogProducts, excludedCategorySlugs, isExcludedCategorySlug } from "@/lib/catalog";
 import { isDatabaseConfigured, prisma } from "@/lib/db";
 import type { CheckoutInput, ProductInput } from "@/lib/validations";
 import type { Category, Order, Product } from "@/types";
@@ -86,6 +86,7 @@ function serializeOrder(order: DbOrder): Order {
 function filterFallback(products: Product[], filters: ProductFilters) {
   const query = filters.query?.trim().toLowerCase();
   let result = products.filter((product) => {
+    if (isExcludedCategorySlug(product.category.slug)) return false;
     const matchesQuery = !query || [product.name, product.description, product.category.name, product.brand, ...product.tags]
       .some((value) => value.toLowerCase().includes(query));
     const matchesCategory = !filters.category || product.category.slug === filters.category;
@@ -115,11 +116,12 @@ function filterFallback(products: Product[], filters: ProductFilters) {
 }
 
 export async function getProducts(filters: ProductFilters = {}): Promise<Product[]> {
+  if (isExcludedCategorySlug(filters.category)) return [];
   if (!isDatabaseConfigured) return filterFallback(runtimeProducts(), filters);
 
   try {
     const where: Prisma.ProductWhereInput = {
-      ...(filters.category ? { category: { slug: filters.category } } : {}),
+      category: { slug: filters.category ? { equals: filters.category, notIn: [...excludedCategorySlugs] } : { notIn: [...excludedCategorySlugs] } },
       ...(filters.brand ? { brand: filters.brand } : {}),
       ...(filters.color ? { variants: { some: { color: { equals: filters.color, mode: "insensitive" } } } } : {}),
       ...(filters.option ? { variants: { some: { optionValue: { equals: filters.option, mode: "insensitive" } } } } : {}),
@@ -154,7 +156,7 @@ export async function getProducts(filters: ProductFilters = {}): Promise<Product
 export const getProductBySlug = cache(async (slug: string): Promise<Product | null> => {
   if (!isDatabaseConfigured) return runtimeProducts().find((product) => product.slug === slug) ?? null;
   try {
-    const row = await prisma.product.findUnique({ where: { slug }, include: productInclude });
+    const row = await prisma.product.findFirst({ where: { slug, category: { slug: { notIn: [...excludedCategorySlugs] } } }, include: productInclude });
     return row ? serializeProduct(row) : null;
   } catch (error) {
     console.error("Product detail query failed.", error);
@@ -165,7 +167,7 @@ export const getProductBySlug = cache(async (slug: string): Promise<Product | nu
 export async function getProductById(id: string): Promise<Product | null> {
   if (!isDatabaseConfigured) return runtimeProducts().find((product) => product.id === id) ?? null;
   try {
-    const row = await prisma.product.findUnique({ where: { id }, include: productInclude });
+    const row = await prisma.product.findFirst({ where: { id, category: { slug: { notIn: [...excludedCategorySlugs] } } }, include: productInclude });
     return row ? serializeProduct(row) : null;
   } catch {
     return runtimeProducts().find((product) => product.id === id) ?? null;
@@ -175,7 +177,7 @@ export async function getProductById(id: string): Promise<Product | null> {
 export async function getCategories(): Promise<Category[]> {
   if (!isDatabaseConfigured) return catalogCategories;
   try {
-    const categories = await prisma.category.findMany({ include: { _count: { select: { products: true } } }, orderBy: { name: "asc" } });
+    const categories = await prisma.category.findMany({ where: { slug: { notIn: [...excludedCategorySlugs] } }, include: { _count: { select: { products: true } } }, orderBy: { name: "asc" } });
     return categories.map((category) => ({
       id: category.id,
       name: category.name,

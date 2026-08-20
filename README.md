@@ -1,12 +1,12 @@
-# JoShop
+# Jshop
 
-JoShop is a French-first marketplace MVP for Tunisia. It combines a black-and-orange technical storefront with catalogue discovery, persistent guest shopping, customer accounts, Prisma-backed checkout and orders, and an operations dashboard.
+Jshop is a French-first marketplace for imported Chinese gadgets in Tunisia. It combines a black-and-orange storefront with catalogue discovery, persistent guest shopping, customer accounts, Prisma-backed checkout and orders, and an operations dashboard.
 
 ## Included
 
-- 14 technical and general-market categories
-- 56 realistic products with flexible JSON specifications
-- Prominent electric scooters, e-bikes, smartphones, computing, audio, home, gaming, and connected devices
+- 12 gadget and lifestyle categories
+- 48 realistic products with flexible JSON specifications
+- Audio, smart-home, gaming, accessories, connected devices, lifestyle products, and electric mobility
 - Technical variants such as storage, capacity, power, configuration, and color
 - FR, EN, and AR interface dictionaries with an SSR-compatible locale cookie
 - Arabic right-to-left layout for the storefront; admin remains left-to-right
@@ -49,7 +49,7 @@ For an existing production database, apply committed migrations during deploymen
 npm run db:deploy
 ```
 
-The idempotent seed creates 14 categories, 56 products, product images, technical variants, specifications, reviews, a sample user/address, and realistic order history.
+The idempotent seed creates 12 categories, 48 products, product images, variants, specifications, reviews, a sample user/address, and realistic order history.
 
 ## Development
 
@@ -70,7 +70,7 @@ npm run build
 
 ## Main routes
 
-- `/` — technical marketplace homepage
+- `/` — imported-gadget marketplace homepage
 - `/search` — search, filter, and sort the catalogue
 - `/category/[slug]` — category collection
 - `/product/[slug]` — gallery, variants, specifications, reviews, and recommendations

@@ -10,12 +10,11 @@ import { Logo } from "@/components/layout/logo";
 import { Button } from "@/components/ui/button";
 
 const links = [
-  { key: "nav.smartphones", href: "/category/smartphones" },
-  { key: "nav.computing", href: "/category/informatique" },
   { key: "nav.audio", href: "/category/audio" },
   { key: "nav.home", href: "/category/maison" },
-  { key: "nav.mobility", href: "/category/mobilite-electrique" },
   { key: "nav.gaming", href: "/category/gaming" },
+  { key: "nav.connected", href: "/category/objets-connectes" },
+  { key: "nav.accessories", href: "/category/accessoires" },
   { key: "nav.deals", href: "/search?discount=true" },
 ];
 
@@ -24,7 +23,7 @@ function CountBadge({ count }: { count: number }) {
 }
 
 export function Header({ accountName }: { accountName?: string }) {
-  const { cartCount, wishlist, setDrawerOpen } = useShopStore();
+  const { cartCount, wishlist } = useShopStore();
   const { locale, t } = useI18n();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -46,7 +45,7 @@ export function Header({ accountName }: { accountName?: string }) {
             <LanguageSwitcher />
             <Link href="/account" className="hidden min-w-12 max-w-24 flex-col items-center gap-0.5 text-[10px] font-bold hover:text-primary sm:flex"><UserRound className="size-5" /><span className="max-w-full truncate">{accountName?.split(" ")[0] || t("common.account")}</span></Link>
             <Link href="/wishlist" className="relative hidden min-w-12 flex-col items-center gap-0.5 text-[10px] font-bold hover:text-primary sm:flex"><Heart className="size-5" /><span>{t("common.wishlist")}</span><CountBadge count={wishlist.length} /></Link>
-            <button type="button" onClick={() => setDrawerOpen(true)} className="relative flex min-w-12 flex-col items-center gap-0.5 text-[10px] font-bold hover:text-primary" aria-label={`${t("common.cart")} (${cartCount})`}><ShoppingBag className="size-5" /><span>{t("common.cart")}</span><CountBadge count={cartCount} /></button>
+            <Link href="/cart" className="relative flex min-w-12 flex-col items-center gap-0.5 text-[10px] font-bold hover:text-primary" aria-label={`${t("common.cart")} (${cartCount})`}><ShoppingBag className="size-5" /><span>{t("common.cart")}</span><CountBadge count={cartCount} /></Link>
           </div>
         </div>
         <div className="shell pb-3 md:hidden">

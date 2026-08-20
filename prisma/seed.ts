@@ -80,7 +80,7 @@ async function main() {
   const demoOrders = [
     { number: "ORD-2026-001284", status: OrderStatus.SHIPPED, createdAt: new Date("2026-08-15T10:30:00Z"), slugs: ["trottinette-electrique-urbanride-s8", "casque-urbain-led-signal"] },
     { number: "ORD-2026-001109", status: OrderStatus.DELIVERED, createdAt: new Date("2026-08-04T14:20:00Z"), slugs: ["ecouteurs-bluetooth-anc-pro"] },
-    { number: "ORD-2026-000986", status: OrderStatus.CONFIRMED, createdAt: new Date("2026-07-28T09:10:00Z"), slugs: ["smartphone-pro-max-256-go"] },
+    { number: "ORD-2026-000986", status: OrderStatus.CONFIRMED, createdAt: new Date("2026-07-28T09:10:00Z"), slugs: ["montre-connectee-amoled-active"] },
     { number: "ORD-2026-000742", status: OrderStatus.CANCELLED, createdAt: new Date("2026-07-11T16:45:00Z"), slugs: ["air-fryer-duo-8-l", "balance-de-cuisine-connectee"] },
   ];
 
