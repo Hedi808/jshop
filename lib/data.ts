@@ -1,19 +1,83 @@
-import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { cache } from "react";
-import { catalogCategories, catalogProducts, excludedCategorySlugs, isExcludedCategorySlug } from "@/lib/catalog";
-import { isDatabaseConfigured, prisma } from "@/lib/db";
+import { isExcludedCategorySlug } from "@/lib/catalog";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import type { CheckoutInput, ProductInput } from "@/lib/validations";
 import type { Category, Order, Product } from "@/types";
 
-const productInclude = {
-  category: true,
-  images: { orderBy: { sortOrder: "asc" as const } },
-  variants: true,
-  reviews: { orderBy: { createdAt: "desc" as const } },
+const PRODUCT_SELECT = `
+  *,
+  category:Category!Product_categoryId_fkey(id,name,slug),
+  images:ProductImage!ProductImage_productId_fkey(*),
+  variants:ProductVariant!ProductVariant_productId_fkey(*),
+  reviews:Review!Review_productId_fkey(*)
+`;
+
+const ORDER_SELECT = `
+  *,
+  items:OrderItem!OrderItem_orderId_fkey(*)
+`;
+
+type DbProduct = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  shortDescription: string;
+  sku: string;
+  price: number | string;
+  compareAtPrice: number | string | null;
+  costPrice: number | string | null;
+  stock: number;
+  brand: string;
+  categoryId: string;
+  category: Product["category"] | Product["category"][] | null;
+  featured: boolean;
+  isNew: boolean;
+  isFlashDeal: boolean;
+  rating: number | string;
+  reviewCount: number;
+  soldCount: number;
+  tags: string[] | null;
+  specifications: Record<string, string> | null;
+  images: Product["images"] | null;
+  variants: Product["variants"] | null;
+  reviews: Array<Omit<Product["reviews"][number], "createdAt"> & { createdAt: string | Date }> | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
 };
 
-type DbProduct = Prisma.ProductGetPayload<{ include: typeof productInclude }>;
-type DbOrder = Prisma.OrderGetPayload<{ include: { items: true } }>;
+type DbOrderItem = {
+  id: string;
+  productId: string;
+  productName: string;
+  productSlug: string;
+  image: string;
+  quantity: number;
+  unitPrice: number | string;
+  variant: string | null;
+};
+
+type DbOrder = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  governorate: string;
+  postalCode: string;
+  country: string;
+  subtotal: number | string;
+  shipping: number | string;
+  discount: number | string;
+  total: number | string;
+  paymentMethod: Order["paymentMethod"];
+  status: Order["status"];
+  items: DbOrderItem[] | null;
+  createdAt: string | Date;
+};
 
 type ProductFilters = {
   query?: string;
@@ -30,44 +94,74 @@ type ProductFilters = {
   limit?: number;
 };
 
-const runtime = globalThis as unknown as {
-  joshopProducts?: Product[];
-  joshopOrders?: Order[];
-};
-
-function runtimeProducts() {
-  if (!runtime.joshopProducts) runtime.joshopProducts = structuredClone(catalogProducts);
-  return runtime.joshopProducts;
+function oneRelation<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function runtimeOrders() {
-  if (!runtime.joshopOrders) runtime.joshopOrders = [];
-  return runtime.joshopOrders;
+function isoString(value: string | Date) {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
+function throwIfQueryFailed(error: { message: string } | null, operation: string) {
+  if (error) throw new Error(`${operation}: ${error.message}`);
 }
 
 function serializeProduct(product: DbProduct): Product {
+  const category = oneRelation(product.category);
+  if (!category) throw new Error(`Product ${product.id} has no category relation.`);
+
   return {
-    ...product,
+    id: product.id,
+    name: product.name,
+    slug: product.slug,
+    description: product.description,
+    shortDescription: product.shortDescription,
+    sku: product.sku,
     price: Number(product.price),
-    compareAtPrice: product.compareAtPrice ? Number(product.compareAtPrice) : null,
-    costPrice: product.costPrice ? Number(product.costPrice) : null,
+    compareAtPrice: product.compareAtPrice === null ? null : Number(product.compareAtPrice),
+    costPrice: product.costPrice === null ? null : Number(product.costPrice),
+    stock: product.stock,
+    brand: product.brand,
+    categoryId: product.categoryId,
+    category,
+    featured: product.featured,
+    isNew: product.isNew,
+    isFlashDeal: product.isFlashDeal,
     rating: Number(product.rating),
-    specifications: (product.specifications as Record<string, string> | null) ?? {},
-    createdAt: product.createdAt.toISOString(),
-    updatedAt: product.updatedAt.toISOString(),
-    reviews: product.reviews.map((review) => ({ ...review, createdAt: review.createdAt.toISOString() })),
+    reviewCount: product.reviewCount,
+    soldCount: product.soldCount,
+    tags: product.tags ?? [],
+    specifications: product.specifications ?? {},
+    images: [...(product.images ?? [])].sort((a, b) => a.sortOrder - b.sortOrder),
+    variants: product.variants ?? [],
+    reviews: [...(product.reviews ?? [])]
+      .sort((a, b) => isoString(b.createdAt).localeCompare(isoString(a.createdAt)))
+      .map((review) => ({ ...review, createdAt: isoString(review.createdAt) })),
+    createdAt: isoString(product.createdAt),
+    updatedAt: isoString(product.updatedAt),
   };
 }
 
 function serializeOrder(order: DbOrder): Order {
   return {
-    ...order,
+    id: order.id,
+    orderNumber: order.orderNumber,
+    customerName: order.customerName,
+    email: order.email,
+    phone: order.phone,
+    address: order.address,
+    city: order.city,
+    governorate: order.governorate,
+    postalCode: order.postalCode,
+    country: order.country,
     subtotal: Number(order.subtotal),
     shipping: Number(order.shipping),
     discount: Number(order.discount),
     total: Number(order.total),
-    createdAt: order.createdAt.toISOString(),
-    items: order.items.map((item) => ({
+    paymentMethod: order.paymentMethod,
+    status: order.status,
+    createdAt: isoString(order.createdAt),
+    items: (order.items ?? []).map((item) => ({
       id: item.id,
       productId: item.productId,
       slug: item.productSlug,
@@ -83,7 +177,7 @@ function serializeOrder(order: DbOrder): Order {
   };
 }
 
-function filterFallback(products: Product[], filters: ProductFilters) {
+function filterProducts(products: Product[], filters: ProductFilters) {
   const query = filters.query?.trim().toLowerCase();
   let result = products.filter((product) => {
     if (isExcludedCategorySlug(product.category.slug)) return false;
@@ -115,80 +209,44 @@ function filterFallback(products: Product[], filters: ProductFilters) {
   return filters.limit ? result.slice(0, filters.limit) : result;
 }
 
+async function readProduct(column: "id" | "slug", value: string) {
+  const { data, error } = await getSupabaseAdmin()
+    .from("Product")
+    .select(PRODUCT_SELECT)
+    .eq(column, value)
+    .limit(1)
+    .maybeSingle();
+  throwIfQueryFailed(error, "Could not read product");
+  return data ? serializeProduct(data as unknown as DbProduct) : null;
+}
+
 export async function getProducts(filters: ProductFilters = {}): Promise<Product[]> {
   if (isExcludedCategorySlug(filters.category)) return [];
-  if (!isDatabaseConfigured) return filterFallback(runtimeProducts(), filters);
-
-  try {
-    const where: Prisma.ProductWhereInput = {
-      category: { slug: filters.category ? { equals: filters.category, notIn: [...excludedCategorySlugs] } : { notIn: [...excludedCategorySlugs] } },
-      ...(filters.brand ? { brand: filters.brand } : {}),
-      ...(filters.color ? { variants: { some: { color: { equals: filters.color, mode: "insensitive" } } } } : {}),
-      ...(filters.option ? { variants: { some: { optionValue: { equals: filters.option, mode: "insensitive" } } } } : {}),
-      ...(filters.minPrice !== undefined || filters.maxPrice !== undefined ? { price: { gte: filters.minPrice, lte: filters.maxPrice } } : {}),
-      ...(filters.rating !== undefined ? { rating: { gte: filters.rating } } : {}),
-      ...(filters.availability ? { stock: { gt: 0 } } : {}),
-      ...(filters.discount ? { compareAtPrice: { not: null } } : {}),
-      ...(filters.query ? {
-        OR: [
-          { name: { contains: filters.query, mode: "insensitive" } },
-          { description: { contains: filters.query, mode: "insensitive" } },
-          { brand: { contains: filters.query, mode: "insensitive" } },
-          { category: { name: { contains: filters.query, mode: "insensitive" } } },
-          { tags: { has: filters.query.toLowerCase() } },
-        ],
-      } : {}),
-    };
-    const orderBy: Prisma.ProductOrderByWithRelationInput = filters.sort === "newest" ? { createdAt: "desc" }
-      : filters.sort === "price-asc" ? { price: "asc" }
-        : filters.sort === "price-desc" ? { price: "desc" }
-          : filters.sort === "best-selling" ? { soldCount: "desc" }
-            : filters.sort === "rating" ? { rating: "desc" }
-              : { featured: "desc" };
-    const rows = await prisma.product.findMany({ where, include: productInclude, orderBy, take: filters.limit });
-    return rows.map(serializeProduct);
-  } catch (error) {
-    console.error("Product query failed; using development catalogue.", error);
-    return filterFallback(runtimeProducts(), filters);
-  }
+  const { data, error } = await getSupabaseAdmin().from("Product").select(PRODUCT_SELECT);
+  throwIfQueryFailed(error, "Could not read products");
+  return filterProducts((data as unknown as DbProduct[]).map(serializeProduct), filters);
 }
 
 export const getProductBySlug = cache(async (slug: string): Promise<Product | null> => {
-  if (!isDatabaseConfigured) return runtimeProducts().find((product) => product.slug === slug) ?? null;
-  try {
-    const row = await prisma.product.findFirst({ where: { slug, category: { slug: { notIn: [...excludedCategorySlugs] } } }, include: productInclude });
-    return row ? serializeProduct(row) : null;
-  } catch (error) {
-    console.error("Product detail query failed.", error);
-    return runtimeProducts().find((product) => product.slug === slug) ?? null;
-  }
+  const product = await readProduct("slug", slug);
+  return product && !isExcludedCategorySlug(product.category.slug) ? product : null;
 });
 
 export async function getProductById(id: string): Promise<Product | null> {
-  if (!isDatabaseConfigured) return runtimeProducts().find((product) => product.id === id) ?? null;
-  try {
-    const row = await prisma.product.findFirst({ where: { id, category: { slug: { notIn: [...excludedCategorySlugs] } } }, include: productInclude });
-    return row ? serializeProduct(row) : null;
-  } catch {
-    return runtimeProducts().find((product) => product.id === id) ?? null;
-  }
+  const product = await readProduct("id", id);
+  return product && !isExcludedCategorySlug(product.category.slug) ? product : null;
 }
 
 export async function getCategories(): Promise<Category[]> {
-  if (!isDatabaseConfigured) return catalogCategories;
-  try {
-    const categories = await prisma.category.findMany({ where: { slug: { notIn: [...excludedCategorySlugs] } }, include: { _count: { select: { products: true } } }, orderBy: { name: "asc" } });
-    return categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      slug: category.slug,
-      description: category.description,
-      image: category.image,
-      productCount: category._count.products,
-    }));
-  } catch {
-    return catalogCategories;
-  }
+  const { data, error } = await getSupabaseAdmin()
+    .from("Category")
+    .select("id,name,slug,description,image,products:Product!Product_categoryId_fkey(id)")
+    .order("name", { ascending: true });
+  throwIfQueryFailed(error, "Could not read categories");
+
+  return (data as unknown as Array<Category & { products: Array<{ id: string }> | null }>)
+    .filter((category) => !isExcludedCategorySlug(category.slug))
+    .map(({ products, ...category }) => ({ ...category, productCount: products?.length ?? 0 }));
 }
 
 export async function getBrands(category?: string) {
@@ -211,45 +269,13 @@ export async function createOrder(input: CheckoutInput, userId?: string): Promis
   const total = subtotal + shipping - discount;
   const orderNumber = generateOrderNumber();
 
-  if (isDatabaseConfigured) {
-    const row = await prisma.order.create({
-      data: {
-        orderNumber,
-        userId,
-        customerName: input.customerName,
-        email: input.email,
-        phone: input.phone,
-        address: input.address,
-        city: input.city,
-        governorate: input.governorate,
-        postalCode: input.postalCode,
-        country: input.country,
-        subtotal,
-        shipping,
-        discount,
-        total,
-        paymentMethod: input.paymentMethod,
-        deliveryNote: input.deliveryNote,
-        items: {
-          create: input.items.map((item, index) => ({
-            productId: item.productId,
-            productName: availableProducts[index]!.name,
-            productSlug: availableProducts[index]!.slug,
-            image: availableProducts[index]!.images[0]?.url ?? item.image,
-            quantity: item.quantity,
-            unitPrice: availableProducts[index]!.price,
-            variant: item.variant,
-          })),
-        },
-      },
-      include: { items: true },
-    });
-    return serializeOrder(row);
-  }
-
-  const order: Order = {
-    id: `order-${Date.now()}`,
+  const supabase = getSupabaseAdmin();
+  const orderId = randomUUID();
+  const now = new Date().toISOString();
+  const { data: orderRow, error: orderError } = await supabase.from("Order").insert({
+    id: orderId,
     orderNumber,
+    userId: userId ?? null,
     customerName: input.customerName,
     email: input.email,
     phone: input.phone,
@@ -264,79 +290,73 @@ export async function createOrder(input: CheckoutInput, userId?: string): Promis
     total,
     paymentMethod: input.paymentMethod,
     status: "PENDING",
-    items: input.items.map((item, index) => ({ ...item, price: availableProducts[index]!.price })),
-    createdAt: new Date().toISOString(),
-  };
-  runtimeOrders().unshift(order);
-  return order;
+    deliveryNote: input.deliveryNote ?? null,
+    createdAt: now,
+    updatedAt: now,
+  }).select("*").single();
+  throwIfQueryFailed(orderError, "Could not create order");
+
+  const { data: itemRows, error: itemError } = await supabase.from("OrderItem").insert(
+    input.items.map((item, index) => ({
+      id: randomUUID(),
+      orderId,
+      productId: item.productId,
+      productName: availableProducts[index]!.name,
+      productSlug: availableProducts[index]!.slug,
+      image: availableProducts[index]!.images[0]?.url ?? item.image,
+      quantity: item.quantity,
+      unitPrice: availableProducts[index]!.price,
+      variant: item.variant ?? null,
+    })),
+  ).select("*");
+
+  if (itemError) {
+    const { error: cleanupError } = await supabase.from("Order").delete().eq("id", orderId);
+    if (cleanupError) console.error("Could not roll back an incomplete order", cleanupError);
+    throw new Error(`Could not create order items: ${itemError.message}`);
+  }
+
+  return serializeOrder({ ...(orderRow as unknown as Omit<DbOrder, "items">), items: itemRows as unknown as DbOrderItem[] });
 }
 
 export async function getOrder(orderNumber: string): Promise<Order | null> {
-  if (!isDatabaseConfigured) return runtimeOrders().find((order) => order.orderNumber === orderNumber) ?? null;
-  try {
-    const row = await prisma.order.findUnique({ where: { orderNumber }, include: { items: true } });
-    return row ? serializeOrder(row) : null;
-  } catch {
-    return runtimeOrders().find((order) => order.orderNumber === orderNumber) ?? null;
-  }
+  const { data, error } = await getSupabaseAdmin()
+    .from("Order")
+    .select(ORDER_SELECT)
+    .eq("orderNumber", orderNumber)
+    .limit(1)
+    .maybeSingle();
+  throwIfQueryFailed(error, "Could not read order");
+  return data ? serializeOrder(data as unknown as DbOrder) : null;
 }
 
 export async function getOrders(): Promise<Order[]> {
-  if (!isDatabaseConfigured) return runtimeOrders();
-  try {
-    const rows = await prisma.order.findMany({ include: { items: true }, orderBy: { createdAt: "desc" } });
-    return rows.map(serializeOrder);
-  } catch {
-    return runtimeOrders();
-  }
+  const { data, error } = await getSupabaseAdmin()
+    .from("Order")
+    .select(ORDER_SELECT)
+    .order("createdAt", { ascending: false });
+  throwIfQueryFailed(error, "Could not read orders");
+  return (data as unknown as DbOrder[]).map(serializeOrder);
 }
 
 export async function getOrdersForUser(userId: string): Promise<Order[]> {
-  if (!isDatabaseConfigured) return [];
-  try {
-    const rows = await prisma.order.findMany({
-      where: { userId },
-      include: { items: true },
-      orderBy: { createdAt: "desc" },
-    });
-    return rows.map(serializeOrder);
-  } catch {
-    return [];
-  }
+  const { data, error } = await getSupabaseAdmin()
+    .from("Order")
+    .select(ORDER_SELECT)
+    .eq("userId", userId)
+    .order("createdAt", { ascending: false });
+  throwIfQueryFailed(error, "Could not read customer orders");
+  return (data as unknown as DbOrder[]).map(serializeOrder);
 }
 
 export async function createProduct(input: ProductInput): Promise<Product> {
   const category = (await getCategories()).find((item) => item.slug === input.categorySlug);
   if (!category) throw new Error("Category not found.");
-  if (isDatabaseConfigured) {
-    const row = await prisma.product.create({
-      data: {
-        name: input.name,
-        slug: input.slug,
-        description: input.description,
-        shortDescription: input.shortDescription,
-        sku: input.sku,
-        price: input.price,
-        compareAtPrice: input.compareAtPrice || null,
-        costPrice: input.costPrice || null,
-        stock: input.stock,
-        brand: input.brand,
-        categoryId: category.id,
-        featured: input.featured,
-        isNew: input.isNew,
-        isFlashDeal: input.isFlashDeal,
-        tags: input.tags,
-        specifications: input.specifications,
-        images: { create: [{ url: input.image, alt: input.name, sortOrder: 0 }] },
-      },
-      include: productInclude,
-    });
-    return serializeProduct(row);
-  }
-
+  const supabase = getSupabaseAdmin();
+  const productId = randomUUID();
   const now = new Date().toISOString();
-  const product: Product = {
-    id: `product-dev-${Date.now()}`,
+  const { error: productError } = await supabase.from("Product").insert({
+    id: productId,
     name: input.name,
     slug: input.slug,
     description: input.description,
@@ -348,7 +368,6 @@ export async function createProduct(input: ProductInput): Promise<Product> {
     stock: input.stock,
     brand: input.brand,
     categoryId: category.id,
-    category: { id: category.id, name: category.name, slug: category.slug },
     featured: input.featured,
     isNew: input.isNew,
     isFlashDeal: input.isFlashDeal,
@@ -357,63 +376,97 @@ export async function createProduct(input: ProductInput): Promise<Product> {
     soldCount: 0,
     tags: input.tags,
     specifications: input.specifications,
-    images: [{ id: `image-${Date.now()}`, url: input.image, alt: input.name, sortOrder: 0 }],
-    variants: [],
-    reviews: [],
     createdAt: now,
     updatedAt: now,
-  };
-  runtimeProducts().unshift(product);
+  });
+  throwIfQueryFailed(productError, "Could not create product");
+
+  const { error: imageError } = await supabase.from("ProductImage").insert({
+    id: randomUUID(),
+    productId,
+    url: input.image,
+    alt: input.name,
+    sortOrder: 0,
+  });
+  if (imageError) {
+    const { error: cleanupError } = await supabase.from("Product").delete().eq("id", productId);
+    if (cleanupError) console.error("Could not roll back an incomplete product", cleanupError);
+    throw new Error(`Could not create product image: ${imageError.message}`);
+  }
+
+  const product = await readProduct("id", productId);
+  if (!product) throw new Error("Created product could not be read.");
   return product;
 }
 
 export async function updateProduct(id: string, input: ProductInput): Promise<Product> {
   const category = (await getCategories()).find((item) => item.slug === input.categorySlug);
   if (!category) throw new Error("Category not found.");
-  if (isDatabaseConfigured) {
-    const row = await prisma.product.update({
-      where: { id },
-      data: {
-        name: input.name, slug: input.slug, description: input.description, shortDescription: input.shortDescription,
-        sku: input.sku, price: input.price, compareAtPrice: input.compareAtPrice || null, costPrice: input.costPrice || null,
-        stock: input.stock, brand: input.brand, categoryId: category.id, featured: input.featured, isNew: input.isNew,
-        isFlashDeal: input.isFlashDeal, tags: input.tags, specifications: input.specifications,
-        images: { deleteMany: {}, create: [{ url: input.image, alt: input.name, sortOrder: 0 }] },
-      },
-      include: productInclude,
-    });
-    return serializeProduct(row);
-  }
-  const index = runtimeProducts().findIndex((product) => product.id === id);
-  if (index < 0) throw new Error("Product not found.");
-  const current = runtimeProducts()[index];
-  const updated: Product = {
-    ...current, ...input, compareAtPrice: input.compareAtPrice || null, costPrice: input.costPrice || null,
-    categoryId: category.id, category: { id: category.id, name: category.name, slug: category.slug },
-    images: [{ id: current.images[0]?.id ?? `image-${Date.now()}`, url: input.image, alt: input.name, sortOrder: 0 }],
+  const supabase = getSupabaseAdmin();
+  const { data: updatedRows, error: productError } = await supabase.from("Product").update({
+    name: input.name,
+    slug: input.slug,
+    description: input.description,
+    shortDescription: input.shortDescription,
+    sku: input.sku,
+    price: input.price,
+    compareAtPrice: input.compareAtPrice || null,
+    costPrice: input.costPrice || null,
+    stock: input.stock,
+    brand: input.brand,
+    categoryId: category.id,
+    featured: input.featured,
+    isNew: input.isNew,
+    isFlashDeal: input.isFlashDeal,
+    tags: input.tags,
+    specifications: input.specifications,
     updatedAt: new Date().toISOString(),
-  };
-  runtimeProducts()[index] = updated;
-  return updated;
+  }).eq("id", id).select("id");
+  throwIfQueryFailed(productError, "Could not update product");
+  if (!updatedRows?.length) throw new Error("Product not found.");
+
+  const { data: images, error: imageReadError } = await supabase
+    .from("ProductImage")
+    .select("id")
+    .eq("productId", id)
+    .order("sortOrder", { ascending: true });
+  throwIfQueryFailed(imageReadError, "Could not read product images");
+
+  const primaryImageId = images?.[0]?.id as string | undefined;
+  if (primaryImageId) {
+    const { error } = await supabase.from("ProductImage").update({ url: input.image, alt: input.name, sortOrder: 0 }).eq("id", primaryImageId);
+    throwIfQueryFailed(error, "Could not update product image");
+  } else {
+    const { error } = await supabase.from("ProductImage").insert({ id: randomUUID(), productId: id, url: input.image, alt: input.name, sortOrder: 0 });
+    throwIfQueryFailed(error, "Could not create product image");
+  }
+
+  const extraImageIds = (images ?? []).slice(1).map((image) => image.id as string);
+  if (extraImageIds.length) {
+    const { error } = await supabase.from("ProductImage").delete().in("id", extraImageIds);
+    throwIfQueryFailed(error, "Could not remove old product images");
+  }
+
+  const product = await readProduct("id", id);
+  if (!product) throw new Error("Updated product could not be read.");
+  return product;
 }
 
 export async function deleteProduct(id: string) {
-  if (isDatabaseConfigured) {
-    await prisma.product.delete({ where: { id } });
-    return;
-  }
-  const index = runtimeProducts().findIndex((product) => product.id === id);
-  if (index < 0) throw new Error("Product not found.");
-  runtimeProducts().splice(index, 1);
+  const { data, error } = await getSupabaseAdmin().from("Product").delete().eq("id", id).select("id");
+  throwIfQueryFailed(error, "Could not delete product");
+  if (!data?.length) throw new Error("Product not found.");
 }
 
 export async function updateOrderStatus(orderNumber: string, status: Order["status"]) {
-  if (isDatabaseConfigured) {
-    const row = await prisma.order.update({ where: { orderNumber }, data: { status }, include: { items: true } });
-    return serializeOrder(row);
-  }
-  const order = runtimeOrders().find((item) => item.orderNumber === orderNumber);
-  if (!order) throw new Error("Order not found.");
-  order.status = status;
-  return order;
+  const { data, error } = await getSupabaseAdmin()
+    .from("Order")
+    .update({ status, updatedAt: new Date().toISOString() })
+    .eq("orderNumber", orderNumber)
+    .select(ORDER_SELECT)
+    .limit(1)
+    .maybeSingle();
+  throwIfQueryFailed(error, "Could not update order status");
+  if (!data) throw new Error("Order not found.");
+  return serializeOrder(data as unknown as DbOrder);
 }

@@ -7,7 +7,7 @@ import { SortSelect } from "@/components/product/sort-select";
 import { getCategories, getProducts } from "@/lib/data";
 import { getI18n } from "@/lib/i18n";
 
-export const metadata: Metadata = { title: "Recherche", description: "Découvrez des gadgets importés de Chine pour l’audio, la maison, le gaming et le quotidien chez Jshop." };
+export const metadata: Metadata = { title: "Recherche", description: "Découvrez des gadgets importés de Chine pour l’audio, la maison, le gaming et le quotidien chez JoShop." };
 
 export default async function SearchPage({ searchParams }: { searchParams: Promise<CatalogParams & { category?: string }> }) {
   const [query, categories] = await Promise.all([searchParams, getCategories()]);

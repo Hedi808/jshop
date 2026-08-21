@@ -9,7 +9,7 @@ const labels: Record<string, string> = {
   electronique: "ÉLECTRONIQUE / IMAGE ET ÉNERGIE", audio: "AUDIO / UN SON PLUS CLAIR",
   maison: "MAISON / QUOTIDIEN SIMPLIFIÉ", cuisine: "CUISINE / PRÉPAREZ AUTREMENT", "beaute-bien-etre": "BIEN-ÊTRE / VOTRE ROUTINE", accessoires: "ACCESSOIRES / TOUJOURS PRÊT",
   "sports-loisirs": "SPORTS / BOUGEZ PLUS", "trottinettes-electriques": "TROTTINETTES / VILLE ÉLECTRIQUE", "velos-electriques": "VÉLOS / ASSISTANCE ÉLECTRIQUE", "mobilite-electrique": "MOBILITÉ / ROUTE SÛRE",
-  gaming: "GAMING / JOUEZ PRÉCIS", "objets-connectes": "OBJETS CONNECTÉS / MAÎTRISEZ VOTRE ESPACE", editorial: "JSHOP / GADGETS DE CHINE",
+  gaming: "GAMING / JOUEZ PRÉCIS", "objets-connectes": "OBJETS CONNECTÉS / MAÎTRISEZ VOTRE ESPACE", editorial: "JOSHOP / GADGETS DE CHINE",
 };
 
 function headphones(accent: string, ink: string) { return `<path d="M250 520V430c0-190 105-310 250-310s250 120 250 310v90" fill="none" stroke="${ink}" stroke-width="70"/><rect x="180" y="450" width="175" height="300" rx="80" fill="${ink}"/><rect x="645" y="450" width="175" height="300" rx="80" fill="${accent}"/><circle cx="730" cy="600" r="38" fill="white" opacity=".8"/>`; }

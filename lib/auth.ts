@@ -1,10 +1,10 @@
 import "server-only";
 
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { cache } from "react";
 import { cookies } from "next/headers";
-import { isDatabaseConfigured, prisma } from "@/lib/db";
+import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase";
 
 const scrypt = promisify(scryptCallback);
 const SESSION_COOKIE = "joshop_session";
@@ -35,6 +35,10 @@ function hashSessionToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function oneRelation<T>(value: T | T[] | null): T | null {
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
 export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
@@ -57,13 +61,18 @@ export async function verifyPassword(password: string, storedHash: string) {
 }
 
 export async function createSession(userId: string) {
-  if (!isDatabaseConfigured) throw new Error("A database connection is required for customer accounts.");
+  if (!isSupabaseConfigured) throw new Error("A Supabase connection is required for customer accounts.");
 
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_LENGTH_MS);
-  await prisma.session.create({
-    data: { userId, tokenHash: hashSessionToken(token), expiresAt },
+  const { error } = await getSupabaseAdmin().from("Session").insert({
+    id: randomUUID(),
+    userId,
+    tokenHash: hashSessionToken(token),
+    expiresAt: expiresAt.toISOString(),
+    createdAt: new Date().toISOString(),
   });
+  if (error) throw new Error(`Could not create customer session: ${error.message}`);
 
   const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, token, {
@@ -79,9 +88,10 @@ export async function destroySession() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
 
-  if (token && isDatabaseConfigured) {
+  if (token && isSupabaseConfigured) {
     try {
-      await prisma.session.deleteMany({ where: { tokenHash: hashSessionToken(token) } });
+      const { error } = await getSupabaseAdmin().from("Session").delete().eq("tokenHash", hashSessionToken(token));
+      if (error) throw error;
     } catch (error) {
       console.error("Could not remove the customer session", error);
     }
@@ -97,29 +107,23 @@ export async function destroySession() {
 }
 
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
-  if (!isDatabaseConfigured) return null;
+  if (!isSupabaseConfigured) return null;
 
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
   try {
-    const session = await prisma.session.findUnique({
-      where: { tokenHash: hashSessionToken(token) },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true, phone: true },
-        },
-      },
-    });
+    const { data, error } = await getSupabaseAdmin()
+      .from("Session")
+      .select("expiresAt,user:User!Session_userId_fkey(id,name,email,phone)")
+      .eq("tokenHash", hashSessionToken(token))
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data || new Date(data.expiresAt as string) <= new Date()) return null;
 
-    if (!session || session.expiresAt <= new Date()) return null;
-
-    return {
-      id: session.user.id,
-      name: session.user.name,
-      email: session.user.email,
-      phone: session.user.phone,
-    };
+    const user = oneRelation(data.user as unknown as CurrentUser | CurrentUser[] | null);
+    return user ? { id: user.id, name: user.name, email: user.email, phone: user.phone } : null;
   } catch (error) {
     console.error("Could not read the customer session", error);
     return null;
@@ -131,10 +135,15 @@ export const getAccountUser = cache(async (): Promise<AccountUser | null> => {
   if (!user) return null;
 
   try {
-    const addresses = await prisma.address.findMany({
-      where: { userId: user.id },
-      orderBy: [{ isDefault: "desc" }, { createdAt: "desc" }],
-    });
+    const { data, error } = await getSupabaseAdmin()
+      .from("Address")
+      .select("id,label,address,city,governorate,postalCode,country,isDefault,createdAt")
+      .eq("userId", user.id)
+      .order("isDefault", { ascending: false })
+      .order("createdAt", { ascending: false });
+    if (error) throw error;
+
+    const addresses = data as unknown as Array<AccountUser["addresses"][number] & { createdAt: string }>;
     return {
       ...user,
       addresses: addresses.map(({ id, label, address, city, governorate, postalCode, country, isDefault }) => ({

@@ -1,10 +1,10 @@
 "use server";
 
-import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { createSession, destroySession, hashPassword, normalizeEmail, verifyPassword } from "@/lib/auth";
-import { isDatabaseConfigured, prisma } from "@/lib/db";
 import { getI18n } from "@/lib/i18n";
+import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabase";
 import { loginSchema, registerSchema } from "@/lib/validations";
 
 export type AuthState = { error?: string };
@@ -23,7 +23,7 @@ function safeDestination(value: FormDataEntryValue | null) {
 
 export async function registerAction(_previousState: AuthState, formData: FormData): Promise<AuthState> {
   const { t } = await getI18n();
-  if (!isDatabaseConfigured) return { error: t("auth.databaseRequired") };
+  if (!isSupabaseConfigured) return { error: t("auth.databaseRequired") };
 
   const parsed = registerSchema.safeParse({
     fullName: formData.get("fullName"),
@@ -38,25 +38,32 @@ export async function registerAction(_previousState: AuthState, formData: FormDa
   const email = normalizeEmail(parsed.data.email);
 
   try {
-    const existingUser = await prisma.user.findFirst({
-      where: { email: { equals: email, mode: "insensitive" } },
-      select: { id: true },
-    });
+    const supabase = getSupabaseAdmin();
+    const { data: existingUser, error: lookupError } = await supabase
+      .from("User")
+      .select("id")
+      .eq("email", email)
+      .limit(1)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
     if (existingUser) return { error: t("auth.emailExists") };
 
     const passwordHash = await hashPassword(parsed.data.password);
-    const user = await prisma.user.create({
-      data: {
-        name: parsed.data.fullName,
-        email,
-        phone: parsed.data.phone || null,
-        passwordHash,
-      },
-    });
+    const now = new Date().toISOString();
+    const { data: user, error: createError } = await supabase.from("User").insert({
+      id: randomUUID(),
+      name: parsed.data.fullName,
+      email,
+      phone: parsed.data.phone || null,
+      passwordHash,
+      createdAt: now,
+      updatedAt: now,
+    }).select("id").single();
+    if (createError) throw createError;
 
     await createSession(user.id);
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
       return { error: t("auth.emailExists") };
     }
     console.error("Customer registration failed", error);
@@ -68,7 +75,7 @@ export async function registerAction(_previousState: AuthState, formData: FormDa
 
 export async function loginAction(_previousState: AuthState, formData: FormData): Promise<AuthState> {
   const { t } = await getI18n();
-  if (!isDatabaseConfigured) return { error: t("auth.databaseRequired") };
+  if (!isSupabaseConfigured) return { error: t("auth.databaseRequired") };
 
   const parsed = loginSchema.safeParse({
     email: formData.get("email"),
@@ -79,10 +86,13 @@ export async function loginAction(_previousState: AuthState, formData: FormData)
   const destination = safeDestination(formData.get("next"));
 
   try {
-    const user = await prisma.user.findFirst({
-      where: { email: { equals: normalizeEmail(parsed.data.email), mode: "insensitive" } },
-      select: { id: true, passwordHash: true },
-    });
+    const { data: user, error } = await getSupabaseAdmin()
+      .from("User")
+      .select("id,passwordHash")
+      .eq("email", normalizeEmail(parsed.data.email))
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
     const passwordMatches = await verifyPassword(parsed.data.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
 
     if (!user?.passwordHash || !passwordMatches) return { error: t("auth.invalidCredentials") };
